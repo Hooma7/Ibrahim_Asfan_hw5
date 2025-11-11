@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <title>UNM CS 412/512 HW5</title>
+  <style>
+    body {
+      background: #111;
+      color: #ccc;
+      font-family: monospace;
+    }
+
+    textarea {
+      background: #222;
+      color: #0f0;
+      font: 14px monospace;
+      width: 400px;
+      height: 250px;
+    }
+
+    canvas {
+      border: 1px solid #444;
+    }
+  </style>
+</head>
+
+<body>
+  <h2>Basketball</h2>
+  <p>Edit vertex and fragment shaders on the left to get the result instantly.<br>
+  Use mouse to drag and rotate the scene. <br>
+Use arrow keys and w, s keys to move the camera. <br>
+Adjust the rim size, the shot power of the ball, and the shot angle using the sliders below. <br>
+Press space to shoot the ball, press r to reset the camera. The ball will reset after a short period. <br>
+Save your code to source file if you want to save it.<br>
+I had troubles with getting the animation of the ball working properly so it looks a little bit glitchy. <br>
+The Basketball hoop is meant to be shiny and metalic like, while the floor should feel polished and wax. <br>
+The jersey and basketball are not metallic or shiny and are more rubber/cloth like while the skin is sweaty so it is shiny. <br>
+All objects on the scene have a texture. The floor and basketball have a bump map. <br>
+The basketball texture and bumpmap were taken from https://www.cs.csubak.edu/~ecastaneda/3480/, the floor texture was found online. <br>
+All other textures were drawn by myself on paint. <br>
+Press F12 to see the console for debugging.</p>
+
+  <div style="display: flex; gap: 10px; align-items: flex-start;">
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div>
+        <b>Vertex Shader</b><br>
+        <textarea id="vertEditor"></textarea>
+      </div>
+      <div>
+        <b>Fragment Shader</b><br>
+        <textarea id="fragEditor"></textarea>
+      </div>
+      <div>
+        <label for="rimSize" >Rim Size: </label>
+        <input type="range" min="1" max="100" value="50" class="slider" id="rimSize">
+      </div>
+      <div>
+        <label for="shotPower" >Shot Power: </label>
+        <input type="range" min="1" max="100" value="50" class="slider" id="shotPower">
+      </div>
+      <div>
+        <label for="shotAngle" >Shot angle: </label>
+        <input type="range" min="1" max="90" value="45" class="slider" id="shotAngle">
+      </div>
+    </div>
+    <div>
+      <canvas id="glcanvas" width="800" height="800"></canvas>
+    </div>
+  </div>
+
+  <!-- Vertex shader -->
+  <script id="vertex-shader" type="x-shader/x-vertex">#version 300 es
+in vec3 aPosition;
+in vec3 aColor;
+in vec3 aNormal;
+in vec2 aTexCoord;
+
+uniform float uTime; //time in sec
+uniform mat4 uModelViewMatrix;
+uniform mat4 uProjectionMatrix;
+uniform mat4 uModelTransformationMatrix;
+
+uniform vec3 uLightPosition1;
+
+out vec3 vColor;
+out vec3 vNormalView;
+out vec3 vPosView;
+
+out vec3 vLightPosView;
+out vec2 vTexCoord;
+
+void main() {
+  vTexCoord = aTexCoord;
+  vec4 posView = uModelViewMatrix * uModelTransformationMatrix * vec4(aPosition, 1.0);
+  
+  vPosView = posView.xyz;
+
+  mat3 normalMat = transpose(inverse(mat3(uModelViewMatrix * uModelTransformationMatrix)));
+  vNormalView = normalize(normalMat * aNormal);
+
+  gl_Position = uProjectionMatrix * uModelViewMatrix * uModelTransformationMatrix * vec4(aPosition,1.0);
+  vColor = aColor;
+}
+</script>
+  <!-- Fragment Shader -->
+  <script id="fragment-shader" type="x-shader/x-fragment">#version 300 es
+precision mediump float;
+in vec3 vColor;
+in vec3 vNormalView;
+in vec3 vPosView;
+in vec2 vTexCoord;
+
+uniform vec3 uLightAmbient;
+
+uniform vec3 uLightPosition1;
+uniform vec3 uLightDiffuse1;
+uniform vec3 uLightSpecular1;
+
+uniform vec3 uLightPosition2;
+uniform vec3 uLightDiffuse2;
+uniform vec3 uLightSpecular2;
+
+uniform vec3 uAmbientK;
+uniform vec3 uDiffuseK;
+uniform vec3 uSpecularK;
+uniform float uShininess;
+
+uniform sampler2D uTex;
+uniform sampler2D uBumpTex;
+
+uniform float uBumpStrength;
+
+out vec4 fragColor;
+
+void main() {
+  vec4 texColor = texture(uTex, vTexCoord);
+
+  float h = texture(uBumpTex, vTexCoord).r;
+  float hu = texture(uBumpTex, vTexCoord + vec2(0.01, 0.0)).r;
+  float hv = texture(uBumpTex, vTexCoord + vec2(0.0, 0.01)).r;
+
+  vec3 gradient = vec3(
+    (hu - h) * uBumpStrength,
+    (hv - h) * uBumpStrength,
+    1.0
+  );
+
+  vec3 N = normalize(vNormalView+gradient);
+  vec3 V = normalize(-vPosView);
+
+  vec3 ambient = uLightAmbient * (uAmbientK);
+
+
+  vec3 L1 = normalize(uLightPosition1 - vPosView);
+  float NL1 = max(dot(N, L1),0.0);
+  vec3 diffuse1 = uLightDiffuse1 * (uDiffuseK * NL1);
+
+  vec3 H1 = normalize(L1+V);
+  float specFactor1 = pow(max(dot(N,H1),0.0), uShininess);
+  vec3 specular1 = uLightSpecular1 * (uSpecularK * specFactor1);
+
+
+  vec3 L2 = normalize(uLightPosition2 - vPosView);
+  float NL2 = max(dot(N, L2),0.0);
+  vec3 diffuse2 = uLightDiffuse2 * (uDiffuseK * NL2);
+
+  vec3 H2 = normalize(L2+V);
+  float specFactor2 = pow(max(dot(N,H2),0.0), uShininess);
+  vec3 specular2 = uLightSpecular2 * (uSpecularK * specFactor2);
+
+  vec3 baseColor = mix(vColor, texColor.rgb, texColor.a);
+
+  vec3 color = (ambient + diffuse1 + specular1 + diffuse2 + specular2) * texColor.rgb;
+
+  fragColor = vec4(color, texColor.a);
+}
+</script>
+
+  <script src="hw5_primitives.js"></script>
+  <script src="hw5_transformations.js"></script>
+
+  <script>
+    function createShader(gl, type, source) {
+      let shader = gl.createShader(type);
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        throw new Error(gl.getShaderInfoLog(shader));
+      }
+      return shader;
+    }
+
+    function createProgram(gl, vsSource, fsSource) {
+      let vs = createShader(gl, gl.VERTEX_SHADER, vsSource);
+      let fs = createShader(gl, gl.FRAGMENT_SHADER, fsSource);
+      let prog = gl.createProgram();
+      gl.attachShader(prog, vs);
+      gl.attachShader(prog, fs);
+      gl.linkProgram(prog);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+        throw new Error(gl.getProgramInfoLog(prog));
+      }
+      return prog;
+    }
+
+    // WebGL setup
+    const canvas = document.getElementById("glcanvas");
+    const gl = canvas.getContext("webgl2");
+    if (!gl) alert("WebGL2 not supported");
+
+    let vertEditor = document.getElementById("vertEditor");
+    let fragEditor = document.getElementById("fragEditor");
+    vertEditor.value = document.getElementById("vertex-shader").textContent;
+    fragEditor.value = document.getElementById("fragment-shader").textContent;
+
+    let program, posLoc, colorLoc, normalLoc, uMVM, uPM, uMTM;
+    let uLightAmbientLoc, uLightPositionLoc1, uLightDiffuseLoc1, uLightSpecularloc1, uLightPositionLoc2, uLightDiffuseLoc2, uLightSpecularloc2;
+    let uAmbientKLoc, uDiffuseKLoc, uSpecularKLoc, uShininessLoc;
+    let basketball_vbo, basketball_nbo, basketball_ibo, basketball_normbo, basketball_texbuf;
+    let rim_vbo, rim_nbo, rim_ibo, rim_normbo, rim_texbuf;
+    let ballX = 0, ballY = 0, ballZ = 0;
+    let bounceEfficiencyFloor = 0.7, friction = 0.5, bounceEfficiencyBB = 0.7;
+    let spinAngle = 0, spinVelocity = -50, spinDamping = 0.98;
+    let shotReleased = false;
+    
+
+    // Buffers
+    function initBuffers() {
+      basketball_vbo = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, basketball_vbo);
+      gl.bufferData(gl.ARRAY_BUFFER, basketball_vertices, gl.STATIC_DRAW);
+
+      basketball_nbo = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, basketball_nbo);
+      gl.bufferData(gl.ARRAY_BUFFER, basketball_colors, gl.STATIC_DRAW);
+
+      basketball_normbo = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, basketball_normbo);
+      gl.bufferData(gl.ARRAY_BUFFER, basketball_normals, gl.STATIC_DRAW);
+
+      basketball_ibo = gl.createBuffer();
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, basketball_ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, basketball_indices, gl.STATIC_DRAW);
+
+      basketball_texbuf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, basketball_texbuf);
+      gl.bufferData(gl.ARRAY_BUFFER, basketball_texcoords, gl.STATIC_DRAW);
+
+      rim_vbo = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, rim_vbo);
+      gl.bufferData(gl.ARRAY_BUFFER, rim_vertices, gl.STATIC_DRAW);
+
+      rim_nbo = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, rim_nbo);
+      gl.bufferData(gl.ARRAY_BUFFER, rim_colors, gl.STATIC_DRAW);
+
+      rim_normbo = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, rim_normbo);
+      gl.bufferData(gl.ARRAY_BUFFER, rim_normals, gl.STATIC_DRAW);
+
+      rim_ibo = gl.createBuffer();
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, rim_ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, rim_indices, gl.STATIC_DRAW);
+
+      rim_texbuf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, rim_texbuf);
+      gl.bufferData(gl.ARRAY_BUFFER, rim_texcoords, gl.STATIC_DRAW);
+    }
+    initBuffers();
+
+    function changecolor(count, r, g, b){
+      let colors=[];
+      for(let i=0; i<count; i++){
+        colors.push(r, g, b);
+      }
+      colors = new Float32Array(colors);
+      return colors;
+    }
+
+
+    function createGeometryBuffers(gl, vertices, colors, indices, normals, texcoords){
+      const shape_vbo = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, shape_vbo);
+      gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+      const shape_nbo = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, shape_nbo);
+      gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
+
+      const shape_normals = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, shape_normals);
+      gl.bufferData(gl.ARRAY_BUFFER, normals, gl.STATIC_DRAW);
+
+      const shape_ibo = gl.createBuffer();
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, shape_ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+
+      let shape_texbuf = null;
+      if(texcoords !== null){
+        shape_texbuf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, shape_texbuf);
+        gl.bufferData(gl.ARRAY_BUFFER, texcoords, gl.STATIC_DRAW);
+      }
+
+      return {vbo: shape_vbo, nbo: shape_nbo, ibo: shape_ibo, normbo: shape_normals, count: indices.length, texbuf: shape_texbuf};
+    }
+
+    function loadTexture(gl, url){
+      const texture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+
+      const placeholder = new Uint8Array([255, 255, 255, 255]);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, placeholder);
+
+      const image = new Image();
+      image.onload = function(){
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      }
+      image.src = url;
+
+      return texture;
+    }
+
+    const floorTexture = loadTexture(gl, 'floor.jpg');
+    const metalTexture = loadTexture(gl, 'metal.jpg');
+    const backboardTexture = loadTexture(gl, 'backboard.jpg');
+    const rimTexture = loadTexture(gl, 'rim.jpg');
+    const skinTexture = loadTexture(gl, 'skin.jpg');
+    const jerseyTexture = loadTexture(gl, 'lakers.jpg');
+    const basketballTexture = loadTexture(gl, 'basketball2.png');
+
+    const blankBumpTexture = loadTexture(gl, 'Blank.jpg');
+    const basketballBumpTexture = loadTexture(gl, 'basketballBump.png');
+    const bballBumpStrength = 10;
+
+
+    const bodyparts = {
+      body : createGeometryBuffers(gl, unitcube_vertices, changecolor(unitcube_indices.length, 0.988, 0.719, 0.152), unitcube_indices, unitcube_normals, unitcube_texcoords),
+      upperarm : createGeometryBuffers(gl, unitcylinder_vertices, changecolor(unitcylinder_indices.length, 0.773, 0.523, 0.258), unitcylinder_indices, unitcylinder_normals, unitcylinder_texcoords),
+      lowerarm : createGeometryBuffers(gl, unitcylinder_vertices, changecolor(unitcylinder_indices.length, 0.773, 0.523, 0.258), unitcylinder_indices, unitcylinder_normals, unitcylinder_texcoords),
+      hand : createGeometryBuffers(gl, unitcube_vertices, changecolor(unitcube_indices.length, 0.773, 0.523, 0.258), unitcube_indices, unitcube_normals, unitcube_texcoords)
+    };
+    bodyparts.body.texture = jerseyTexture;
+    bodyparts.upperarm.texture = skinTexture;
+    bodyparts.lowerarm.texture = skinTexture;
+    bodyparts.hand.texture = skinTexture;
+
+    bodyparts.body.bumpTexture = blankBumpTexture;
+    bodyparts.upperarm.bumpTexture = blankBumpTexture;
+    bodyparts.lowerarm.bumpTexture = blankBumpTexture;
+    bodyparts.hand.bumpTexture = blankBumpTexture;
+
+    bodyparts.body.bumpStrength = 0;
+    bodyparts.upperarm.bumpStrength = 0;
+    bodyparts.lowerarm.bumpStrength = 0;
+    bodyparts.hand.bumpStrength = 0;
+
+
+    let floor = createGeometryBuffers(gl,unitcube_vertices, changecolor(unitcube_indices.length, 0.87109375, 0.73046875, 0.51953125), unitcube_indices, unitcube_normals, unitcube_texcoords);
+    floor.texture = floorTexture;
+    floor.bumpTexture = floorTexture;
+    
+    let backboard = createGeometryBuffers(gl,unitcube_vertices, changecolor(unitcube_indices.length, 0.59375, 0.65625, 0.6796875), unitcube_indices, unitcube_normals, unitcube_texcoords);
+    backboard.texture = backboardTexture;  
+    backboard.bumpTexture = blankBumpTexture;
+    
+    let pole = createGeometryBuffers(gl,unitcylinder_vertices, changecolor(unitcylinder_indices.length, 0.59375, 0.65625, 0.6796875), unitcylinder_indices, unitcylinder_normals, unitcylinder_texcoords);
+    pole.texture = metalTexture;
+    pole.bumpTexture = blankBumpTexture;
+
+
+    function initShaderProgram() {
+      try {
+        program = createProgram(gl, vertEditor.value, fragEditor.value);
+        gl.useProgram(program);
+        posLoc = gl.getAttribLocation(program, "aPosition");
+        colorLoc = gl.getAttribLocation(program, "aColor");
+        normalLoc = gl.getAttribLocation(program, "aNormal");
+        
+        texCoordLoc = gl.getAttribLocation(program, "aTexCoord");
+        uTexLoc = gl.getUniformLocation(program, "uTex");
+
+        uBumpTexLoc = gl.getUniformLocation(program, "uBumpTex");
+        uBumpStrengthLoc = gl.getUniformLocation(program, "uBumpStrength")
+
+        timeLoc = gl.getUniformLocation(program, "uTime");
+        uMVM = gl.getUniformLocation(program, "uModelViewMatrix");
+        uPM = gl.getUniformLocation(program, "uProjectionMatrix");
+        uMTM = gl.getUniformLocation(program, "uModelTransformationMatrix");
+
+        uLightAmbientLoc = gl.getUniformLocation(program, "uLightAmbient");
+        uLightPositionLoc1 = gl.getUniformLocation(program, "uLightPosition1");
+        uLightDiffuseLoc1 = gl.getUniformLocation(program, "uLightDiffuse1");
+        uLightSpecularloc1 = gl.getUniformLocation(program, "uLightSpecular1");
+
+        uLightPositionLoc2 = gl.getUniformLocation(program, "uLightPosition2");
+        uLightDiffuseLoc2 = gl.getUniformLocation(program, "uLightDiffuse2");
+        uLightSpecularloc2 = gl.getUniformLocation(program, "uLightSpecular2");
+
+        uAmbientKLoc = gl.getUniformLocation(program, "uAmbientK");
+        uDiffuseKLoc = gl.getUniformLocation(program, "uDiffuseK");
+        uSpecularKLoc = gl.getUniformLocation(program, "uSpecularK");
+        uShininessLoc = gl.getUniformLocation(program, "uShininess");
+      } catch (e) { console.error(e); }
+    }
+    initShaderProgram();
+    vertEditor.onkeyup = initShaderProgram;
+    fragEditor.onkeyup = initShaderProgram;
+
+
+    const rimscale = document.getElementById("rimSize");
+    let rim_val = 50;
+    rimscale.addEventListener("input", function(){
+      rim_val = parseInt(rimscale.value);
+    })
+
+    const shotpower = document.getElementById("shotPower");
+    let shot_val = 50;
+    shotpower.addEventListener("input", function(){
+      shot_val = parseInt(shotpower.value);
+    })
+
+    const shotangle = document.getElementById("shotAngle");
+    let shot_ang = 45;
+    shotangle.addEventListener("input", function(){
+      shot_ang = parseInt(shotangle.value);
+    })
+
+
+    // Mouse and keyboard interactions
+    let mouseDown = false, lastX, lastY, cubeRotX = 0, cubeRotY = 0;
+    let camX = 2, camY = 0, camZ = -20;
+    
+    //Shot animation variables
+    let xi=0, xf=0, vx_i=0, vx_f=0, g=-9.8, t=0;
+    let yi=0, yf=0, vy_i=0, vy_f=0; 
+    let isShot = false; lastTime=0; shotStartTime=0;
+
+    let la_change = 135, h_change = 30;
+
+    canvas.addEventListener('mousedown', e => { mouseDown = true; lastX = e.clientX; lastY = e.clientY; });
+    canvas.addEventListener('mouseup', () => mouseDown = false);
+    canvas.addEventListener('mousemove', e => {
+      if (!mouseDown) return;
+      let dx = e.clientX - lastX;
+      let dy = e.clientY - lastY;
+      cubeRotY += dx * 0.01;
+      cubeRotX += dy * 0.01;
+      lastX = e.clientX; lastY = e.clientY;
+    });
+
+    document.addEventListener('keydown', e => {
+      const step = 0.2;
+      switch (e.key) {
+        case 'ArrowUp': camY -= step; break;
+        case 'ArrowDown': camY += step; break;
+        case 'ArrowLeft': camX += step; break;
+        case 'ArrowRight': camX -= step; break;
+        case 'w': camZ += step; break;
+        case 's': camZ -= step; break;
+        case 'r': cubeRotX=0; cubeRotY=0; camZ=-20; camX=2; camY=0; break;
+        case ' ': if(!isShot){
+          isShot = true; shotStartTime = Date.now();
+          la_change = 135;
+          spinAngle = 0;
+          spinVelocity = -50;
+          xi = ballX;
+          yi = ballY;
+          vx_i=0.2*shot_val*Math.cos(-(Math.PI/180)*(180+shot_ang));
+          vy_i=0.2*shot_val*Math.sin(-(Math.PI/180)*(180+shot_ang));
+        } break;
+      }
+    });
+
+
+    let fov = Math.PI / 4, aspect = canvas.width / canvas.height, zNear = 0.1, zFar = 100;
+    let f = 1 / Math.tan(fov / 2);
+    let proj = new Float32Array([
+      f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (zFar + zNear) / (zNear - zFar), -1, 0, 0, (2 * zFar * zNear) / (zNear - zFar), 0
+    ]);
+
+    let startTime = Date.now();
+    let sc = 0;
+
+    function rotationMatrix(rotations){
+      let rotatex = mat4RotateX(mat4Identity(), rotations[0]);
+      let rotatey = mat4RotateY(mat4Identity(), rotations[1]);
+      let rotatez = mat4RotateZ(mat4Identity(), rotations[2]);
+
+      return multiplyMat4(rotatez, multiplyMat4(rotatey, rotatex));
+    }
+
+
+    let metal = {ambient: [0.75, 0.75, 0.75], diffuse: [0.5, 0.5, 0.5], specular: [0.90, 0.90, 0.90], shininess: 500.0};
+    let rubber = {ambient: [0.5, 0.5, 0.5], diffuse: [0.45, 0.45, 0.45], specular: [0.25, 0.25, 0.25], shininess: 5.0};
+
+    //Node creation for the tree structure
+    function createNode(){
+      return node = {
+        translation: [0,0,0],
+        rotation: [0, 0, 0],
+        scale: [1, 1, 1],
+        local_transformation: mat4Identity(),
+        children: [],
+        geometry: null,
+        lightingcoefficents: null,
+      };
+    }
+
+    function addChild(parent, child){
+      parent.children.push(child);
+    }
+
+    //Applies transformations in a dfs structure
+    
+    function applyTransformations(gl, node, parentMatrix, unit){
+      const transform = multiplyMat4(
+        mat4Translate(mat4Identity(), node.translation), //Translation
+        multiplyMat4(rotationMatrix(node.rotation), //Rotation
+        mat4Scale(mat4Identity(), node.scale) )); //Scaling
+      
+      const worldMatrix = multiplyMat4(parentMatrix, transform);
+      
+      gl.uniformMatrix4fv(uMTM, false, multiplyMat4(worldMatrix, node.local_transformation));
+      
+      if(node == ball_node){
+        let v_local = [0,0,0,1];
+        let v_world = multiplyMat4Vec4(multiplyMat4(worldMatrix, node.local_transformation), v_local);
+        ballX = v_world[0];
+        ballY = v_world[1];
+        ballZ = v_world[2];
+      }
+      
+      drawNode(gl, node.geometry.count, node.geometry.vbo, node.geometry.nbo, node.geometry.ibo, node.geometry.normbo, node.lightingcoefficents, node.geometry.texbuf, node.geometry.texture, unit++, node.geometry.bumpTexture, node.geometry.bumpStrength);
+      for(let child of node.children){
+        applyTransformations(gl, child, worldMatrix, unit);
+      }
+    }
+    
+    function drawNode(gl, count, vbo, nbo, ibo, normbo, lighting, texbuf, texture, unit = 0, bumpTex, bumpStrength){
+      gl.uniform3fv(uAmbientKLoc, lighting.ambient);
+      gl.uniform3fv(uDiffuseKLoc, lighting.diffuse);
+      gl.uniform3fv(uSpecularKLoc, lighting.specular);
+      gl.uniform1f(uShininessLoc, lighting.shininess);
+      gl.uniform1f(uBumpStrengthLoc, bumpStrength);
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, texbuf);
+      gl.enableVertexAttribArray(texCoordLoc);
+      gl.vertexAttribPointer(texCoordLoc, 2, gl.FLOAT, false, 0, 0);
+
+      gl.activeTexture(gl.TEXTURE0 + unit);
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.uniform1i(uTexLoc, unit);
+
+      gl.activeTexture(gl.TEXTURE1 + unit);
+      gl.bindTexture(gl.TEXTURE_2D, bumpTex);
+      gl.uniform1i(uBumpTexLoc, unit+1)
+      
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+      gl.enableVertexAttribArray(posLoc);
+      gl.vertexAttribPointer(posLoc, 3, gl.FLOAT, false, 0, 0);
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, nbo);
+      gl.enableVertexAttribArray(colorLoc);
+      gl.vertexAttribPointer(colorLoc, 3, gl.FLOAT, false, 0, 0);
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, normbo);
+      gl.enableVertexAttribArray(normalLoc);
+      gl.vertexAttribPointer(normalLoc, 3, gl.FLOAT, false, 0, 0);
+
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+
+
+
+      gl.drawElements(gl.TRIANGLES, count, gl.UNSIGNED_SHORT, 0);
+    }
+
+    //Local transformations for the body
+    let local_bodytransform = mat4Identity();
+    let local_upperarmtransform = mat4Identity();
+    let local_lowerarmtransform = mat4Identity();
+    let local_handtransform = mat4Identity();
+    let local_balltransform = mat4Identity();
+    
+    let translation = mat4Translate(mat4Identity(), [0, 1, 0])
+    let scaling = [0.8, 0, 0, 0, 0, 3, 0, 0, 0, 0, 2.4, 0, 0, 0, 0, 1];
+    local_bodytransform = multiplyMat4(translation, scaling);
+
+    translation = mat4Translate(mat4Identity(), [0, 0, 0])
+    scaling = [0.3, 0, 0, 0, 0, 1.25, 0, 0, 0, 0, 0.3, 0, 0, 0, 0, 1];
+    local_upperarmtransform = multiplyMat4(translation, scaling);
+
+    translation = mat4Translate(mat4Identity(), [0, 0, 0])
+    scaling = [0.2, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0.2, 0, 0, 0, 0, 1];
+    local_lowerarmtransform = multiplyMat4(translation, scaling);
+
+    translation = mat4Translate(mat4Identity(), [0, 0.3, 0])
+    scaling = [0.1, 0, 0, 0, 0, 0.6, 0, 0, 0, 0, 0.5, 0, 0, 0, 0, 1];
+    local_handtransform = multiplyMat4(translation, scaling);
+
+    scaling = [0.5, 0, 0, 0, 0, 0.5, 0, 0, 0, 0, 0.5, 0, 0, 0, 0, 1];
+    local_balltransform = multiplyMat4(scaling, local_balltransform);
+
+
+    let body_node = createNode();
+    let upperarm_node = createNode();
+    let lowerarm_node = createNode();
+    let hand_node = createNode();
+    let ball_node = createNode();
+
+    body_node.local_transformation = local_bodytransform;
+    upperarm_node.local_transformation = local_upperarmtransform;
+    lowerarm_node.local_transformation = local_lowerarmtransform;
+    hand_node.local_transformation = local_handtransform;
+    ball_node.local_transformation = local_balltransform
+
+    body_node.geometry = bodyparts.body;
+    upperarm_node.geometry = bodyparts.upperarm;
+    lowerarm_node.geometry = bodyparts.lowerarm;
+    hand_node.geometry = bodyparts.hand;
+    ball_node.geometry = {vbo: basketball_vbo, nbo: basketball_nbo, ibo: basketball_ibo, normbo: basketball_normbo, count: basketball_indices.length, texbuf: basketball_texbuf, texture: basketballTexture, bumpTexture: basketballBumpTexture, bumpStrength: bballBumpStrength};
+
+    body_node.translation = [4.5, -2.5, 1.75];
+    upperarm_node.translation = [0, 2, -1.5];
+    lowerarm_node.translation = [0, 1.25, 0];
+    hand_node.translation = [0, 1, 0];
+    ball_node.translation = [-0.5, 0.2, 0];
+
+
+    ball_translations = [4.0, 1.65, 0.25];
+
+
+    addChild(body_node, upperarm_node); 
+    addChild(upperarm_node, lowerarm_node);
+    addChild(lowerarm_node, hand_node);
+    addChild(hand_node, ball_node);
+
+    body_node.lightingcoefficents = rubber;
+    ball_node.lightingcoefficents = rubber;
+
+    upperarm_node.lightingcoefficents = metal;
+    lowerarm_node.lightingcoefficents = metal;
+    hand_node.lightingcoefficents = metal;
+
+
+    let background = createGeometryBuffers(gl,unitcube_vertices, changecolor(unitcube_indices.length, 0.0, 0.0, 0.0), unitcube_indices, unitcube_normals, unitcube_texcoords);
+
+    let videoElement = document.createElement('video');
+    videoElement.src = "Crowd-Lights.mp4";
+    videoElement.loop = true;
+    videoElement.muted = true;
+    videoElement.play();
+    textureSource = videoElement;
+    let vidtexture = gl.createTexture();
+
+    background.texture = vidtexture;
+
+
+    function render() {
+      if(videoElement && videoElement.readyState >= videoElement.HAVE_CURRENT_DATA){
+        gl.bindTexture(gl.TEXTURE_2D, vidtexture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, videoElement);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      }
+
+      let unit = 0;
+      gl.enable(gl.DEPTH_TEST);
+      gl.clearColor(0, 0, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      
+      gl.uniform3fv(uLightAmbientLoc, [0.5, 0.5, 0.5]);
+      
+      gl.uniform3fv(uLightPositionLoc1, [-5.0, 1.0, 0.0]);
+      gl.uniform3fv(uLightDiffuseLoc1, [0.5, 0.5, 0.5]);
+      gl.uniform3fv(uLightSpecularloc1, [0.5, 0.5, 0.5]);
+
+      gl.uniform3fv(uLightPositionLoc2, [5.0, 0.0, 0.0]);
+      gl.uniform3fv(uLightDiffuseLoc2, [0.75, 0.75, 0.75]);
+      gl.uniform3fv(uLightSpecularloc2, [0.75, 0.75, 0.75]);
+
+      //delta time in ms
+      let deltaTime = Date.now() - startTime;
+
+      // rotation matrices
+      let cx = Math.cos(cubeRotY), sx = Math.sin(cubeRotY);
+      let cy = Math.cos(cubeRotX), sy = Math.sin(cubeRotX);
+      let rotX = [1, 0, 0, 0, 0, cy, sy, 0, 0, -sy, cy, 0, 0, 0, 0, 1];
+      let rotY = [cx, 0, -sx, 0, 0, 1, 0, 0, sx, 0, cx, 0, 0, 0, 0, 1];
+      let cubeRotation = multiplyMat4(rotY, rotX);
+
+      // init model-view matrix as identity matrix
+      let modelViewMatrix = mat4Identity();
+      // init model transformation matrix as identity matrix
+      let modelTransformationMatrix = mat4Identity();
+
+      // object rotation
+      modelTransformationMatrix = multiplyMat4(modelTransformationMatrix, cubeRotation);
+
+      // camera translation
+      modelViewMatrix = mat4Translate(modelViewMatrix, [camX, camY, camZ]);
+      
+      //set time in seconds
+      gl.uniform1f(timeLoc, deltaTime/1000.0);
+      gl.uniformMatrix4fv(uPM, false, proj);
+      gl.uniformMatrix4fv(uMVM, false, modelViewMatrix);
+      gl.uniformMatrix4fv(uMTM, false, modelTransformationMatrix);
+
+
+      //Draw Pole
+      translation = mat4Translate(mat4Identity(), [-9,-3,0]);
+      scaling = [0.2, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0.2, 0, 0, 0, 0, 1];
+      let poleMatrix = multiplyMat4(translation, scaling); 
+      poleMatrix = multiplyMat4(modelTransformationMatrix, poleMatrix);
+      gl.uniformMatrix4fv(uMTM, false, poleMatrix);
+      drawNode(gl, pole.count, pole.vbo, pole.nbo, pole.ibo, pole.normbo, metal, pole.texbuf, pole.texture, unit++, pole.bumpTexture, 0);
+
+      //Draw backboard
+      translation = mat4Translate(mat4Identity(), [-9,4,0]);
+      scaling = [4, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0.5, 0, 0, 0, 0, 1];
+      let rotation = mat4RotateY(mat4Identity(), Math.PI/2);
+      let backboardMatrix = multiplyMat4(translation, multiplyMat4(rotation, scaling)); 
+      backboardMatrix = multiplyMat4(modelTransformationMatrix, backboardMatrix);
+      gl.uniformMatrix4fv(uMTM, false, backboardMatrix);
+
+      drawNode(gl, backboard.count, backboard.vbo, backboard.nbo, backboard.ibo, backboard.normbo, metal, backboard.texbuf, backboard.texture, unit++, backboard.bumpTexture, 0);
+
+      //Draw rim
+      translation = mat4Translate(mat4Identity(), [-8, 3,0]);
+      sc = rim_val * 0.01
+      scaling = [sc, 0, 0, 0, 0, sc, 0, 0, 0, 0, sc, 0, 0, 0, 0, 1];
+      rotation = mat4RotateX(mat4Identity(), Math.PI / 2);
+      let rimMatrix = multiplyMat4(translation, multiplyMat4(rotation, scaling)); 
+      rimMatrix = multiplyMat4(modelTransformationMatrix, rimMatrix);
+      gl.uniformMatrix4fv(uMTM, false, rimMatrix);
+
+      drawNode(gl, rim_indices.length, rim_vbo, rim_nbo, rim_ibo, rim_normbo, metal, rim_texbuf, rimTexture, unit++, blankBumpTexture, 0);
+
+
+      //Draw Floor
+      translation = mat4Translate(mat4Identity(), [0,-3.5,0]);
+      scaling = [50, 0, 0, 0, 0, 30, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+      rotation = mat4RotateX(mat4Identity(), Math.PI/2);
+      let floorMatrix = multiplyMat4(translation, multiplyMat4(rotation, scaling)); 
+      floorMatrix = multiplyMat4(modelTransformationMatrix, floorMatrix);
+      gl.uniformMatrix4fv(uMTM, false, floorMatrix);
+      drawNode(gl, floor.count, floor.vbo, floor.nbo, floor.ibo, floor.normbo, metal, floor.texbuf, floor.texture, unit++, floor.bumpTexture, 2);
+
+
+      gl.uniform3fv(uAmbientKLoc, [0.5, 0.5, 0.5]);
+      gl.uniform3fv(uDiffuseKLoc, [0.45, 0.45, 0.45]);
+      gl.uniform3fv(uSpecularKLoc, [0.25, 0.25, 0.25]);
+      gl.uniform1f(uShininessLoc, 5.0);
+      
+      //Draw Body
+      applyTransformations(gl, body_node, modelTransformationMatrix, unit);
+
+
+      //Body Animations
+      let ua_angle, la_angle, h_angle;
+      ua_angle = (Math.PI/180)*(180+(shot_ang+50));
+      la_angle = (Math.PI/180)*la_change;
+      h_angle = (Math.PI/180)*h_change;
+    
+      upperarm_node.rotation = [0, 0, ua_angle];
+      lowerarm_node.rotation = [0, 0, la_angle];
+      hand_node.rotation = [0, 0, h_angle];
+    
+
+      // Start with identity
+      let worldMatrix = mat4Identity();
+
+      //test
+      let bballmatrix = mat4Identity();
+
+      let ballPos = [ballX, ballY, ballZ];
+      let now = Date.now();
+      if (lastTime === 0) lastTime = now;
+      let deltaSec = (now-lastTime) / 1000.0;
+      lastTime = now;
+
+      if (isShot){
+        bballmatrix = ball_node.local_transformation;
+        if(la_change > 0){
+          la_change -= 15;
+        }
+        if(la_change < 90 && la_change > 0){
+          h_change -= 15;
+        }
+        if(!shotReleased && h_change < -10){
+          xi=ballX;
+          yi=ballY;
+          hand_node.children = hand_node.children.filter(child => child !== ball_node);
+          shotReleased = true;
+        }
+        if(shotReleased){
+          t+=deltaSec;
+          xf = xi + vx_i*t;
+          vy_f = vy_i + g*t;
+          yf = yi + vy_i*t + 0.5*g*t*t;
+
+          spinAngle += spinVelocity * deltaSec;
+          spinVelocity *= spinDamping;
+
+          //Floor collision
+          if (yf <= -2.7){
+            yf = -2.7;
+            vy_i = -vy_f * bounceEfficiencyFloor;
+            vx_i *= friction;
+            xi = xf;
+            yi=yf;
+            t=0;
+          }
+          //Backboard (BB) collision
+          if(yf <= 5.5 && (xf <= -8.5 && xf >=-9.25)){
+            xf = -8.5;
+            vx_i = -vx_i * bounceEfficiencyBB;
+            vy_i = vy_f * 0.9;
+            xi=xf;
+            yi=yf;
+            t=0;
+          }
+          if((Date.now() - shotStartTime) / 1000.0 >= 5){
+            hand_node.children.push(ball_node);
+            ball_node.translation = [-0.5, 0.2, 0];
+            ball_node.local_transformation = bballmatrix;
+            t=0;
+            spinAngle = 0;
+            spinVelocity = -50;
+            isShot = false;
+            la_change = 135;
+            h_change = 30;
+            shotReleased = false;
+          }
+
+          ballPos = [xf, yf, 0];
+          let ball_translation = mat4Translate(mat4Identity(), ballPos);
+          let ball_rotation = rotationMatrix([0, 0, spinAngle]);
+          let ball_scaling = [0.5, 0, 0, 0, 0, 0.5, 0, 0, 0, 0, 0.5, 0, 0, 0, 0, 1];
+          bballmatrix = multiplyMat4(ball_translation, multiplyMat4(ball_rotation, ball_scaling));
+          bballmatrix = multiplyMat4(modelTransformationMatrix, bballmatrix);
+          gl.uniformMatrix4fv(uMTM, false, bballmatrix);
+          drawNode(gl, basketball_indices.length, basketball_vbo, basketball_nbo, basketball_ibo, basketball_normbo, rubber, basketball_texbuf, basketballTexture, unit++, basketballBumpTexture, bballBumpStrength);
+        }
+      }
+
+
+      //Draw Background
+      translation = mat4Translate(mat4Identity(), [0,10,-50]);
+      scaling = [75, 0, 0, 0, 0, 1, 0, 0, 0, 0, 50, 0, 0, 0, 0, 1];
+      rotation = mat4RotateX(mat4Identity(), Math.PI/2);
+      let backgroundMatrix = multiplyMat4(translation, multiplyMat4(rotation, scaling)); 
+      backgroundMatrix = multiplyMat4(modelTransformationMatrix, backgroundMatrix);
+      gl.uniformMatrix4fv(uMTM, false, backgroundMatrix);
+      drawNode(gl, background.count, background.vbo, background.nbo, background.ibo, background.normbo, metal, background.texbuf, background.texture, unit++, blankBumpTexture, 0);
+    }
+
+     
+
+    // Initialize when page loads
+    window.onload = function () {
+      setInterval(render, 30);
+    }
+
+  </script>
+</body>
+
+</html>
